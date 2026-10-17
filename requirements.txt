@@ -1,0 +1,8 @@
+pandas
+numpy
+openpyxl
+aiogram>=3.0
+streamlit
+antropic
+python-dotenv
+pytest
