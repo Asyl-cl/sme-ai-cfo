@@ -2,9 +2,9 @@ import json
 from ai import llm, prompts
 
 
-def answer(report: dict, question: str) -> str:
-    """Ответ на вопрос по готовому отчёту (LLM видит только JSON с числами)."""
-    ctx = json.dumps(report, ensure_ascii=False, default=str)
+def answer(report: dict | None, question: str) -> str:
+    ctx = (json.dumps(report, ensure_ascii=False, default=str) if report
+           else "Данные бизнеса не загружены (нет файла с продажами). Числа по этому бизнесу назвать нельзя.")
     return llm.ask(prompts.QA_SYSTEM, f"ДАННЫЕ:\n{ctx}\n\nВОПРОС: {question}")
 
 

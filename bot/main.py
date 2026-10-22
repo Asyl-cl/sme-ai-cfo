@@ -74,11 +74,10 @@ async def _make_report(m: Message, st: dict):
                    reply_markup=MENU)
 
 
-async def _section(m: Message, kind: str):
-    st = STATE.get(m.chat.id)
-    if not st or "report" not in st:
-        return await m.answer("Сначала отправьте файл с продажами или напишите /demo.")
-    await reply(m, TEXTS[kind](st["report"]))
+async def question(m: Message):
+    st = STATE.get(m.chat.id) or {}
+    report = st.get("report")          # None, если данные ещё не загружены
+    await reply(m, await asyncio.to_thread(qa.answer, report, m.text))
 
 
 for _k in TEXTS:
