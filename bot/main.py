@@ -21,8 +21,8 @@ STATE: dict[int, dict] = {}   # chat_id -> данные и отчёт (для х
 MAX_FILE = 10 * 1024 * 1024
 HELP = ("Что я умею:\n"
         "/demo — пример на тестовых данных\n"
-        "Отправьте файл .csv или .xlsx: продажи (date, sku, name, qty, price, cost), остатки (sku, qty), "
-        "долги (client, amount, due_date), плановые платежи (date, name, amount). "
+        "Отправьте файл .csv или .xlsx: продажи (дата, товар, количество, цена, себестоимость), остатки, "
+        "долги (клиент, сумма, срок оплаты), плановые платежи. Заголовки можно писать по-русски. "
         "В Excel можно сложить всё на разные листы.\n"
         "/balance 1100000 — задать остаток денег на счетах\n"
         "/report — повторить отчёт\n"
@@ -32,7 +32,7 @@ HELP = ("Что я умею:\n"
         "/bank — куда уходят деньги по банковской выписке (файл date, description, amount)\n"
         "/remind [ru|kk] [мягкий|настойчивый|последнее] — тексты напоминаний должникам\n"
         "Фото накладной — распознаю товары и суммы.\n"
-        "Любой вопрос текстом — отвечу по вашим данным.")
+        "Любой вопрос или просьба о совете текстом — отвечу (с вашими данными точнее).")
 
 
 async def reply(m: Message, text: str):
@@ -46,7 +46,7 @@ def _ready(st: dict) -> bool:
 
 def _guard(handler):
     """Любой сбой в обработчике → понятное сообщение, бот живёт."""
-    @functools.wraps(handler)   # aiogram по сигнатуре решает, что передавать: без wraps падало с «unexpected keyword 'dispatcher'»
+    @functools.wraps(handler)   # aiogram по сигнатуре решает, что передавать
     async def wrapper(m: Message, *a, **kw):
         try:
             return await handler(m, *a, **kw)
@@ -74,10 +74,11 @@ async def _make_report(m: Message, st: dict):
                    reply_markup=MENU)
 
 
-async def question(m: Message):
-    st = STATE.get(m.chat.id) or {}
-    report = st.get("report")          # None, если данные ещё не загружены
-    await reply(m, await asyncio.to_thread(qa.answer, report, m.text))
+async def _section(m: Message, kind: str):
+    st = STATE.get(m.chat.id)
+    if not st or "report" not in st:
+        return await m.answer("Сначала отправьте файл с продажами или напишите /demo.")
+    await reply(m, TEXTS[kind](st["report"]))
 
 
 for _k in TEXTS:
@@ -258,10 +259,9 @@ async def _invoice_click(c: CallbackQuery):
 @dp.message(F.text & ~F.text.startswith("/"))
 @_guard
 async def question(m: Message):
-    st = STATE.get(m.chat.id)
-    if not st or "report" not in st:
-        return await m.answer("Сначала отправьте файл с продажами или напишите /demo.")
-    await reply(m, await asyncio.to_thread(qa.answer, st["report"], m.text))
+    st = STATE.get(m.chat.id) or {}
+    report = st.get("report")          # None, если данных ещё нет: совет всё равно работает
+    await reply(m, await asyncio.to_thread(qa.answer, report, m.text))
 
 
 async def main():
