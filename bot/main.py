@@ -2,7 +2,8 @@ import asyncio, functools, io, logging, os
 import pandas as pd
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (BotCommand, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
+                           MenuButtonCommands, Message, ReplyKeyboardMarkup)
 from dotenv import load_dotenv
 
 from ai import qa
@@ -64,6 +65,28 @@ MENU = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="💰 Эффект", callback_data="effect"),
      InlineKeyboardButton(text="🏦 Выписка", callback_data="bank")],
     [InlineKeyboardButton(text="✉️ Напоминания", callback_data="remind")]])
+KB = ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True, keyboard=[
+    [KeyboardButton(text="📊 Демо"), KeyboardButton(text="📈 Отчёт")],
+    [KeyboardButton(text="🛒 Закупки"), KeyboardButton(text="👥 Должники")],
+    [KeyboardButton(text="💰 Эффект"), KeyboardButton(text="🏦 Выписка")],
+    [KeyboardButton(text="✉️ Напоминания"), KeyboardButton(text="❓ Помощь")]])
+BUTTON_TEXTS = {"📊 Демо", "📈 Отчёт", "🛒 Закупки", "👥 Должники", "💰 Эффект", "🏦 Выписка",
+                "✉️ Напоминания", "❓ Помощь"}
+COMMANDS = [BotCommand(command="start", description="Начать работу"),
+            BotCommand(command="demo", description="Пример на тестовых данных"),
+            BotCommand(command="report", description="Отчёт по вашим данным"),
+            BotCommand(command="order", description="Что закупить на неделю"),
+            BotCommand(command="debts", description="Должники"),
+            BotCommand(command="effect", description="Сколько денег можно высвободить"),
+            BotCommand(command="bank", description="Куда уходят деньги (выписка)"),
+            BotCommand(command="remind", description="Напоминания должникам"),
+            BotCommand(command="balance", description="Указать остаток денег"),
+            BotCommand(command="help", description="Что я умею")]
+DESCRIPTION = ("ИИ-финдиректор для малого бизнеса Тараза.\n\n"
+               "Пришлите Excel или CSV с продажами, фото накладной или просто задайте вопрос. "
+               "Покажу, где теряются деньги, что закупить, когда не хватит денег и кому напомнить о долге.\n\n"
+               "Нажмите «Начать» внизу.")
+SHORT_DESCRIPTION = "ИИ-финдиректор: загрузите Excel с продажами и узнайте, где теряются деньги и что делать."
 TEXTS = {"order": order_text, "debts": debts_text, "effect": effect_text, "bank": bank_text}
 
 
@@ -105,11 +128,52 @@ async def menu_click(c: CallbackQuery):
         await c.message.answer("Что-то пошло не так. Напишите /help.")
 
 
+TOPICS_KB = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="💸 Как закрыть долг", callback_data="t_debt")],
+    [InlineKeyboardButton(text="📈 Как заработать больше", callback_data="t_profit")],
+    [InlineKeyboardButton(text="📊 Попробовать на примере", callback_data="t_demo"),
+     InlineKeyboardButton(text="📎 Загрузить свои данные", callback_data="t_upload")],
+    [InlineKeyboardButton(text="🤖 Что умеет бот", callback_data="t_about")]])
+UPLOAD_HINT = ("Пришлите файл .xlsx или .csv: продажи (дата, товар, количество, цена, себестоимость), остатки, "
+               "долги (клиент, сумма, срок оплаты) или банковскую выписку. Заголовки можно писать по-русски. "
+               "Можно также прислать фото накладной.")
+
+
 @dp.message(CommandStart())
-@dp.message(Command("help"))
 @_guard
 async def start(m: Message):
-    await m.answer("Привет! Я ИИ-финдиректор для малого бизнеса.\n\n" + HELP)
+    await m.answer("Привет! Я ИИ-финдиректор для малого бизнеса. Помогаю понять, где теряются деньги, "
+                   "что закупить и как не уйти в кассовый разрыв.", reply_markup=KB)
+    await m.answer("Какой у вас вопрос? Выберите тему или напишите свой вопрос своими словами, например: "
+                   "«У меня долг 1 800 000 ₸, как его закрыть?»", reply_markup=TOPICS_KB)
+
+
+@dp.message(Command("help"))
+@_guard
+async def help_cmd(m: Message):
+    await m.answer(HELP, reply_markup=KB)
+
+
+@dp.callback_query(F.data.in_({"t_debt", "t_profit", "t_demo", "t_upload", "t_about"}))
+async def topic_click(c: CallbackQuery):
+    await c.answer()
+    try:
+        m = c.message                      # chat_id берём из сообщения с кнопками
+        if c.data == "t_debt":
+            await m.answer("Расскажите одним сообщением: сколько вы должны, кому (поставщику, банку, другому) "
+                           "и к какому сроку. Дам план, как закрыть долг.")
+        elif c.data == "t_profit":
+            report = (STATE.get(m.chat.id) or {}).get("report")
+            await reply(m, await asyncio.to_thread(qa.answer, report, "Как мне заработать больше?"))
+        elif c.data == "t_demo":
+            await demo(m)
+        elif c.data == "t_upload":
+            await m.answer(UPLOAD_HINT)
+        else:
+            await m.answer(HELP)
+    except Exception:
+        log.exception("topic callback failed")
+        await c.message.answer("Что-то пошло не так. Напишите /help.")
 
 
 @dp.message(Command("demo"))
@@ -256,6 +320,23 @@ async def _invoice_click(c: CallbackQuery):
     await c.message.answer(text + "\nОтчёт пересчитан: /order, /effect.")
 
 
+@dp.message(F.text.in_(BUTTON_TEXTS))
+@_guard
+async def keyboard_button(m: Message):
+    """Кнопки нижней клавиатуры: те же действия, что и у команд (не уходят в ИИ как вопрос)."""
+    t = m.text
+    if t == "📊 Демо":
+        return await demo(m)
+    if t == "📈 Отчёт":
+        return await report_cmd(m)
+    if t == "✉️ Напоминания":
+        return await _send_reminders(m, [])
+    if t == "❓ Помощь":
+        return await help_cmd(m)
+    kind = {"🛒 Закупки": "order", "👥 Должники": "debts", "💰 Эффект": "effect", "🏦 Выписка": "bank"}[t]
+    await _section(m, kind)
+
+
 @dp.message(F.text & ~F.text.startswith("/"))
 @_guard
 async def question(m: Message):
@@ -264,11 +345,23 @@ async def question(m: Message):
     await reply(m, await asyncio.to_thread(qa.answer, report, m.text))
 
 
+async def setup_bot(bot: Bot):
+    """Список команд, кнопка «Меню», описание на экране перед запуском. Сбой не мешает работе бота."""
+    try:
+        await bot.set_my_commands(COMMANDS)
+        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        await bot.set_my_description(DESCRIPTION)
+        await bot.set_my_short_description(SHORT_DESCRIPTION)
+    except Exception:
+        log.exception("Не удалось настроить меню бота (бот продолжит работать)")
+
+
 async def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         raise SystemExit("Не задан TELEGRAM_BOT_TOKEN в .env")
     bot = Bot(token)
+    await setup_bot(bot)
     await dp.start_polling(bot)
 
 
